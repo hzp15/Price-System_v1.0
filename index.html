@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NS 智能报价系统 V5.2 (图片版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; background-color: #f1f5f9; }
+        .input-std { width: 100%; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 8px; font-size: 13px; transition: border 0.2s; }
+        .input-std:focus { border-color: #000; outline: none; }
+        .preview-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 60; display: flex; justify-content: center; padding: 20px; overflow-y: auto; backdrop-filter: blur(5px); }
+        /* 🟢 修改：预览区域背景设为白色，确保截图背景正确 */
+        .preview-content { background: white; width: 900px; min-height: 1200px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); position: relative; margin-bottom: 50px; }
+        .project-card { background: white; border-radius: 12px; border: 1px solid #e2e8f0; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .project-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border-color: #94a3b8; }
+        .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); font-size: 100px; font-weight: 900; color: rgba(0, 0, 0, 0.03); pointer-events: none; white-space: nowrap; }
+        .mobile-label { font-size: 0.7rem; color: #64748b; margin-bottom: 2px; display: block; font-weight: 600; }
+        .pdf-table th, .pdf-table td { border-bottom: 1px solid #e5e7eb; }
+        .pdf-table th { border-top: 2px solid #000; border-bottom: 2px solid #000; }
+    </style>
+</head>
+<body>
+
+<div id="app" class="min-h-screen flex flex-col">
+
+    <div v-if="!isLoggedIn" class="flex-1 flex items-center justify-center bg-slate-900 p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center">
+            <h1 class="text-3xl font-black text-black mb-2 tracking-tighter">NATURAL SURFACE</h1>
+            <p class="text-gray-500 text-xs mb-6">QUOTATION SYSTEM V5.2</p>
+            <div class="space-y-4 text-left">
+                <input type="email" v-model="loginForm.email" class="input-std p-3" placeholder="Email">
+                <input type="password" v-model="loginForm.password" class="input-std p-3" placeholder="Password">
+                <div class="flex items-center">
+                    <input type="checkbox" id="rememberMe" v-model="loginForm.remember" class="w-4 h-4 text-black border-gray-300 rounded focus:ring-black">
+                    <label for="rememberMe" class="ml-2 block text-sm text-gray-700 cursor-pointer">保持登录 (Remember me)</label>
+                </div>
+                <button @click="handleLogin" class="w-full bg-black text-white py-3 rounded-lg font-bold hover:bg-gray-800 transition">LOGIN</button>
+            </div>
+            <p v-if="loginError" class="mt-4 text-red-500 text-xs">{{ loginError }}</p>
+        </div>
+    </div>
+
+    <div v-else class="flex flex-col h-screen">
+        <header class="bg-black text-white px-6 py-3 flex justify-between items-center shadow-lg z-40 sticky top-0">
+            <div class="font-bold text-lg tracking-wider">NS SYSTEM <span class="text-xs text-gray-500 ml-1">V5.2</span></div>
+            <div class="flex gap-4 text-sm">
+                <button @click="currentView = 'list'" :class="{'text-yellow-400': currentView==='list'}" class="hover:text-gray-300 flex items-center gap-2"><i class="fas fa-folder"></i> 项目列表</button>
+                <button @click="createNewQuote" class="hover:text-gray-300 flex items-center gap-2"><i class="fas fa-plus"></i> 新建</button>
+                <button @click="logout" class="text-red-400 hover:text-red-300"><i class="fas fa-power-off"></i></button>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto p-4 bg-slate-50">
+            <div v-if="currentView === 'list'" class="max-w-6xl mx-auto">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-slate-800">项目管理中心</h2>
+                    <button @click="exportAllToExcel" class="bg-green-600 text-white px-4 py-2 rounded text-sm shadow hover:bg-green-700 transition"><i class="fas fa-file-excel mr-2"></i>导出Excel</button>
+                </div>
+                <div v-if="loading" class="text-center py-10 text-gray-400"><i class="fas fa-spinner fa-spin text-2xl"></i></div>
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div v-for="q in quotesList" :key="q.id" class="project-card group relative flex flex-col">
+                        <button @click.stop="deleteQuote(q.id)" class="absolute top-4 right-4 text-gray-300 hover:text-red-500 z-10 p-1 opacity-0 group-hover:opacity-100 transition"><i class="fas fa-trash-alt"></i></button>
+                        <div class="p-5 border-b border-gray-100 bg-white">
+                            <h3 class="font-bold text-lg text-slate-900 mb-1">{{ q.project_name }}</h3>
+                            <div class="text-xs text-gray-400 font-mono mb-4">{{ q.quote_no }} <span class="mx-2">|</span> {{ formatDate(q.created_at) }}</div>
+                            <div class="flex justify-between items-end">
+                                <div class="text-xs text-gray-500">客户: {{ q.client_name }}</div>
+                                <div class="text-right">
+                                    <div class="text-[10px] text-gray-400 uppercase">最终报价 (Final Total)</div>
+                                    <div class="text-2xl font-black text-slate-800">¥{{ formatNumber(q.data.grandTotal || 0) }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex divide-x divide-gray-100 bg-slate-50 mt-auto">
+                            <button @click="editQuote(q)" class="flex-1 py-3 text-sm font-medium text-blue-600 hover:bg-blue-100 transition">编辑报价信息</button>
+                            <button @click="openCostModel(q)" class="flex-1 py-3 text-sm font-medium text-green-600 hover:bg-green-100 transition flex justify-center items-center gap-2">
+                                成本核算 <i v-if="q.cost_data" class="fas fa-check-circle text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentView === 'form'" class="max-w-7xl mx-auto bg-white rounded-xl shadow-xl min-h-[85vh] flex flex-col">
+                <div class="px-6 py-4 border-b flex justify-between items-center sticky top-0 bg-white z-20 rounded-t-xl shadow-sm">
+                    <button @click="currentView = 'list'" class="text-gray-500 hover:text-black font-medium"><i class="fas fa-arrow-left mr-1"></i> 返回列表</button>
+                    <div class="flex gap-2">
+                        <button @click="saveQuote" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow transition">保存</button>
+                        <button @click="openPreview" class="bg-black text-white px-4 py-2 rounded font-bold hover:bg-gray-800 shadow transition"><i class="fas fa-eye mr-1"></i> 预览报价单</button>
+                    </div>
+                </div>
+                <div class="p-6 md:p-8 flex-1">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 bg-slate-50 p-5 rounded-lg border border-slate-100">
+                        <div class="md:col-span-2"><label class="mobile-label">项目名称</label><input v-model="form.projectName" class="w-full bg-transparent border-b-2 border-slate-300 focus:border-black outline-none font-bold text-lg py-1" placeholder="项目名称"></div>
+                        <div><label class="mobile-label">报价日期</label><input type="date" v-model="form.date" class="input-std"></div>
+                        <div><label class="mobile-label">单号 (自动)</label><input v-model="form.quoteNo" readonly class="input-std bg-gray-100 text-gray-400"></div>
+                        <div><label class="mobile-label">客户联系人</label><input v-model="form.contactName" class="input-std"></div>
+                        <div class="md:col-span-3"><label class="mobile-label">项目详细地址</label><input v-model="form.projectLocation" class="input-std"></div>
+                    </div>
+                    <div class="mb-8">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="font-bold text-lg border-l-4 border-black pl-3">报价明细表</h3>
+                            <button @click="addItem" class="bg-black text-white px-3 py-1 text-xs rounded hover:bg-gray-800 transition"><i class="fas fa-plus"></i> 添加位置</button>
+                        </div>
+                        <div class="hidden md:block border rounded-lg overflow-hidden shadow-sm">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-slate-100 text-slate-600 font-bold uppercase">
+                                    <tr>
+                                        <th class="p-3 w-[12%]">位置</th>
+                                        <th class="p-3 w-[15%]">工艺类型</th>
+                                        <th class="p-3 w-[12%]">效果</th>
+                                        <th class="p-3 text-right w-[8%]">面积(㎡)</th>
+                                        <th class="p-3 text-right w-[10%] bg-orange-50 text-orange-700">零售单价</th>
+                                        <th class="p-3 text-right w-[10%] bg-blue-50 text-blue-700">折后单价</th>
+                                        <th class="p-3 text-center w-[8%]">难度</th>
+                                        <th class="p-3 text-center w-[8%]">SU图示</th>
+                                        <th class="p-3 text-center w-[5%]"></th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-for="(item, index) in form.items" :key="index" class="hover:bg-slate-50 transition">
+                                        <td class="p-2"><input v-model="item.location" class="input-std" placeholder="位置"></td>
+                                        <td class="p-2">
+                                            <select v-model="item.type" @change="updateDefaultPrice(item)" class="input-std mb-1">
+                                                <option value="4layer">4层工艺 (地面/湿区)</option>
+                                                <option value="2layer">2层工艺 (墙面/天花)</option>
+                                                <option value="custom">自定义工艺</option>
+                                            </select>
+                                            <input v-if="item.type === 'custom'" v-model="item.customTypeName" class="input-std text-xs bg-yellow-50 border-yellow-200" placeholder="工艺名称">
+                                        </td>
+                                        <td class="p-2">
+                                            <select v-model="item.effect" class="input-std">
+                                                <option value="玄武岩">玄武岩 (平滑)</option>
+                                                <option value="玄武岩矿物版">玄武岩矿物版</option>
+                                                <option value="石英岩">石英岩 (擦色)</option>
+                                                <option value="石灰岩">石灰岩 (凹凸)</option>
+                                                <option value="石灰岩自然纹理">石灰岩自然纹理</option>
+                                            </select>
+                                        </td>
+                                        <td class="p-2"><input type="number" v-model.number="item.area" class="input-std text-right font-bold"></td>
+                                        <td class="p-2 bg-orange-50/30"><input type="number" v-model.number="item.retailPrice" class="input-std text-right text-orange-700 border-orange-200"></td>
+                                        <td class="p-2 bg-blue-50/30"><input type="number" v-model.number="item.discountedPrice" class="input-std text-right text-blue-700 font-bold border-blue-200"></td>
+                                        <td class="p-2"><select v-model="item.difficulty" class="input-std"><option value="normal">常规</option><option value="hard">特殊</option></select></td>
+                                        <td class="p-2 text-center align-middle">
+                                            <div class="flex justify-center items-center gap-2">
+                                                <input type="checkbox" v-model="item.showSuColor" class="w-4 h-4">
+                                                <input v-if="item.showSuColor" type="color" v-model="item.suColor" class="w-6 h-6 border-none p-0 cursor-pointer">
+                                            </div>
+                                        </td>
+                                        <td class="p-2 text-center"><button @click="removeItem(index)" class="text-gray-300 hover:text-red-500"><i class="fas fa-times"></i></button></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="bg-white border-t p-4 flex flex-col md:flex-row justify-end items-center gap-8">
+                        <div class="flex items-center gap-4 bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                            <label class="flex items-center gap-2 cursor-pointer text-sm">
+                                <input type="checkbox" v-model="form.showOriginalPrice" class="rounded">
+                                <span>显示原价/折后价对比</span>
+                            </label>
+                            <div class="w-px h-4 bg-slate-300"></div>
+                            <div class="flex items-center gap-2 text-sm">
+                                <span>最终全局折扣:</span>
+                                <input type="number" v-model.number="form.globalDiscount" class="w-16 border rounded text-center font-bold text-blue-600">
+                                <span>%</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs text-gray-400 line-through mb-1" v-if="form.showOriginalPrice">原价总计: ¥{{ formatNumber(totalRetail) }}</div>
+                            <div class="text-xs text-blue-500 font-medium mb-1">折后小计: ¥{{ formatNumber(subTotalDiscounted) }}</div>
+                            <div class="text-4xl font-black text-slate-900">¥{{ formatNumber(grandTotalFinal) }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentView === 'cost'" class="max-w-6xl mx-auto bg-white rounded-xl shadow-xl min-h-[85vh] flex flex-col">
+                <div class="px-6 py-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <button @click="currentView = 'list'" class="text-gray-500 hover:text-black flex items-center gap-2"><i class="fas fa-arrow-left"></i> 返回</button>
+                    <h2 class="font-bold text-lg">成本核算: {{ form.projectName }}</h2>
+                    <button @click="saveQuote" class="bg-green-600 text-white px-5 py-2 rounded font-bold shadow hover:bg-green-700 transition">保存核算</button>
+                </div>
+                <div class="p-8 flex-1">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                        <div class="bg-blue-50 border border-blue-100 p-4 rounded-xl">
+                            <div class="text-[10px] uppercase text-blue-500 font-bold mb-1">4层工艺面积</div>
+                            <div class="text-2xl font-black text-blue-900">{{ formatNumber(areaStats.layer4) }}<span class="text-sm font-normal ml-1">㎡</span></div>
+                        </div>
+                        <div class="bg-green-50 border border-green-100 p-4 rounded-xl">
+                            <div class="text-[10px] uppercase text-green-500 font-bold mb-1">2层工艺面积</div>
+                            <div class="text-2xl font-black text-green-900">{{ formatNumber(areaStats.layer2) }}<span class="text-sm font-normal ml-1">㎡</span></div>
+                        </div>
+                        <div class="col-span-2 bg-slate-900 text-white p-4 rounded-xl">
+                            <div class="text-[10px] uppercase text-slate-400 font-bold mb-1">本次报价折后总收入</div>
+                            <div class="text-3xl font-black text-green-400">¥{{ formatNumber(grandTotalFinal) }}</div>
+                        </div>
+                    </div>
+                    <div class="flex flex-col md:flex-row gap-8">
+                        <div class="flex-1 space-y-6">
+                            <div class="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
+                                <h4 class="font-bold border-b pb-3 mb-4 flex items-center gap-2 text-slate-700"><i class="fas fa-boxes"></i> 材料成本</h4>
+                                <div class="grid grid-cols-2 gap-4 mb-3">
+                                    <div><label class="mobile-label">材料费用</label><input type="number" v-model.number="costForm.material" class="input-std"></div>
+                                    <div><label class="mobile-label">运输费用</label><input type="number" v-model.number="costForm.transport" class="input-std"></div>
+                                </div>
+                                <div class="text-right text-xs font-bold text-slate-500">材料汇总: ¥{{ formatNumber(costForm.material + costForm.transport) }}</div>
+                            </div>
+                            <div class="bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
+                                <h4 class="font-bold border-b pb-3 mb-4 flex items-center gap-2 text-slate-700"><i class="fas fa-users-cog"></i> 人力成本</h4>
+                                <div class="grid grid-cols-2 gap-4 mb-3">
+                                    <div><label class="mobile-label">人工工资</label><input type="number" v-model.number="costForm.labor" class="input-std"></div>
+                                    <div><label class="mobile-label">杂费/耗材</label><input type="number" v-model.number="costForm.misc" class="input-std"></div>
+                                </div>
+                                <div class="text-right text-xs font-bold text-slate-500">人力汇总: ¥{{ formatNumber(costForm.labor + costForm.misc) }}</div>
+                            </div>
+                            <div class="bg-red-50 text-red-800 p-4 rounded-lg font-bold flex justify-between border border-red-100"><span>总直接成本 (Total Cost)</span><span>¥{{ formatNumber(totalCost) }}</span></div>
+                        </div>
+                        <div class="flex-1 bg-slate-50 border border-slate-200 p-6 rounded-xl h-full">
+                            <h4 class="font-bold border-b border-slate-300 pb-3 mb-5 flex items-center gap-2 text-slate-800"><i class="fas fa-calculator"></i> 利润分配模型</h4>
+                            <div class="space-y-5">
+                                <div>
+                                    <label class="mobile-label text-slate-600">1. 渠道佣金 (Commission)</label>
+                                    <div class="flex gap-2">
+                                        <select v-model="costForm.commissionType" class="input-std flex-1 bg-white">
+                                            <option value="none">无佣金</option>
+                                            <option value="fixed">一口价 (¥)</option>
+                                            <option value="percent">比例 (%)</option>
+                                        </select>
+                                        <input v-if="costForm.commissionType !== 'none'" type="number" v-model.number="costForm.commissionValue" class="input-std w-24 bg-white" placeholder="数值">
+                                    </div>
+                                    <div class="flex justify-between text-xs mt-2 px-1">
+                                        <span class="text-gray-400">佣金支出:</span>
+                                        <span class="text-orange-600 font-bold">- ¥{{ formatNumber(commissionCost) }}</span>
+                                    </div>
+                                    <div class="flex justify-between text-xs mt-1 px-1 border-t border-slate-200 pt-1">
+                                        <span class="text-gray-500">分佣后金额:</span>
+                                        <span class="text-slate-900 font-bold">¥{{ formatNumber(grandTotalFinal - commissionCost) }}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="mobile-label text-slate-600">2. 公司运营费 (Operating Fee)</label>
+                                    <div class="flex items-center gap-3">
+                                        <input type="range" v-model.number="costForm.operatingRate" min="0" max="30" class="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                                        <div class="bg-white border px-2 py-1 rounded text-xs font-bold w-12 text-center">{{ costForm.operatingRate }}%</div>
+                                    </div>
+                                    <div class="text-right text-xs text-gray-500 font-medium">- ¥{{ formatNumber(operatingCost) }}</div>
+                                </div>
+                                <div class="border-t-2 border-slate-200 pt-5 mt-4">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-sm font-bold text-slate-600">项目总毛利 (Gross Profit)</span>
+                                        <span class="text-lg font-bold text-slate-800">¥{{ formatNumber(grandTotalFinal - commissionCost - totalCost - operatingCost) }}</span>
+                                    </div>
+                                    <div class="bg-black text-white p-5 rounded-xl shadow-lg mt-4 text-center">
+                                        <div class="text-[10px] opacity-60 uppercase tracking-widest mb-1">每人净利润 (按2人平分)</div>
+                                        <div class="text-4xl font-black text-green-400">¥{{ formatNumber(profitPerPerson) }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div v-if="showPreview" class="preview-modal" @click.self="showPreview = false">
+        <div>
+            <div class="flex justify-end gap-3 mb-4 no-print">
+                <button @click="showPreview = false" class="bg-white text-gray-800 px-4 py-2 rounded-full font-bold shadow hover:bg-gray-100">关闭</button>
+                <button @click="downloadImage" class="bg-black text-white px-6 py-2 rounded-full font-bold shadow hover:bg-gray-800 flex items-center gap-2"><i class="fas fa-image"></i> 下载高清图片 (PNG)</button>
+            </div>
+
+            <div id="pdf-content" class="preview-content p-12 text-slate-900">
+                <div class="flex justify-between items-center border-b-2 border-black pb-6 mb-8">
+                    <div class="flex items-center gap-4">
+                        <img src="https://via.placeholder.com/150x50/000000/FFFFFF?text=NATURAL+SURFACE" alt="Logo" class="h-12 object-contain" />
+                        <div class="border-l-2 border-black pl-4 h-10 flex flex-col justify-center">
+                            <div class="font-bold text-sm tracking-widest">GUANGZHOU PANYI DECORATION</div>
+                            <div class="text-xs text-gray-500">https://natural-surface.net/</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-4xl font-black text-gray-200 tracking-tighter">QUOTATION</div>
+                        <div class="font-bold text-sm">{{ form.quoteNo }}</div>
+                        <div class="text-xs text-gray-500">{{ form.date }}</div>
+                    </div>
+                </div>
+                <div class="flex justify-between mb-8 text-sm">
+                    <div>
+                        <div class="text-[10px] text-gray-400 uppercase font-bold">Project Name</div>
+                        <div class="font-bold text-lg">{{ form.projectName }}</div>
+                        <div class="text-gray-600 mt-1">{{ form.projectLocation }}</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-[10px] text-gray-400 uppercase font-bold">Client Contact</div>
+                        <div class="font-bold text-lg">{{ form.contactName }}</div>
+                        <div class="text-gray-600 mt-1">CN: +86 172 6410 6540</div>
+                    </div>
+                </div>
+                <table class="w-full text-xs mb-8 pdf-table">
+                    <thead>
+                        <tr class="bg-gray-50">
+                            <th class="py-2 text-left">位置</th>
+                            <th class="py-2 text-left w-1/3">工艺内容 / 效果</th>
+                            <th class="py-2 text-right">面积 (㎡)</th>
+                            <th class="py-2 text-center">SU图示</th>
+                            <template v-if="form.showOriginalPrice">
+                                <th class="py-2 text-right text-gray-400">零售单价</th>
+                                <th class="py-2 text-right text-gray-400">零售总价</th>
+                            </template>
+                            <th class="py-2 text-right font-bold text-black">折后单价</th>
+                            <th class="py-2 text-right font-bold text-black">折后总价</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700">
+                        <tr v-for="item in form.items" class="border-b border-gray-100">
+                            <td class="py-3 font-bold align-top">{{ item.location }}</td>
+                            <td class="py-3 align-top">
+                                <div class="whitespace-pre-line leading-relaxed">{{ getDetailedSystem(item.type) }}</div>
+                                <div class="mt-1 text-gray-500">效果：{{ item.effect }}</div>
+                                <div v-if="item.customTypeName" class="text-blue-600 mt-1">{{ item.customTypeName }}</div>
+                                <div v-if="item.difficulty === 'hard'" class="text-orange-500 font-bold mt-1 scale-90 origin-left">* 特殊工艺处理</div>
+                            </td>
+                            <td class="py-3 text-right align-top font-mono">{{ item.area }}</td>
+                            <td class="py-3 align-top text-center">
+                                <div v-if="item.showSuColor" class="inline-block w-8 h-8 rounded border border-gray-200 shadow-sm" :style="{backgroundColor: item.suColor}"></div>
+                            </td>
+                            <template v-if="form.showOriginalPrice">
+                                <td class="py-3 text-right align-top text-gray-400 font-mono">¥{{ item.retailPrice }}</td>
+                                <td class="py-3 text-right align-top text-gray-400 font-mono">¥{{ formatNumber(item.retailPrice * item.area) }}</td>
+                            </template>
+                            <td class="py-3 text-right align-top font-bold text-black font-mono">¥{{ item.discountedPrice }}</td>
+                            <td class="py-3 text-right align-top font-bold text-black font-mono">¥{{ formatNumber(item.discountedPrice * item.area) }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div class="flex justify-end mt-4">
+                    <div class="w-1/2 border-t-2 border-black pt-4">
+                        <div class="flex justify-between mb-2 text-sm" v-if="form.showOriginalPrice">
+                            <span class="text-gray-400">零售总计 (Retail Total)</span>
+                            <span class="font-mono text-gray-400 line-through">¥{{ formatNumber(totalRetail) }}</span>
+                        </div>
+                        <div class="flex justify-between mb-2 text-sm">
+                            <span class="text-gray-600">折后小计 (Subtotal)</span>
+                            <span class="font-mono font-bold">¥{{ formatNumber(subTotalDiscounted) }}</span>
+                        </div>
+                        <div v-if="form.globalDiscount < 100" class="flex justify-between mb-2 text-sm text-red-500">
+                            <span>最终折扣 (Global Disc {{ form.globalDiscount }}%)</span>
+                            <span class="font-mono">- ¥{{ formatNumber(subTotalDiscounted - grandTotalFinal) }}</span>
+                        </div>
+                        <div class="flex justify-between text-3xl font-black mt-4 border-t border-gray-200 pt-2">
+                            <span>TOTAL</span>
+                            <span>¥{{ formatNumber(grandTotalFinal) }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="absolute bottom-12 left-12 right-12 text-[10px] text-gray-400 border-t pt-4">
+                    <div class="grid grid-cols-2">
+                        <div>
+                            <strong class="text-black block mb-1">报价说明:</strong>
+                            <p>1. 报价已含材料、人工及售后服务 (包工包料)。</p>
+                            <p>2. 特殊区域施工难度较高，单价有所调整。</p>
+                            <p>3. 最终结算以实际施工面积为准。</p>
+                        </div>
+                        <div class="text-right flex flex-col justify-end">
+                            <div>System Generated by Natural Surface</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="watermark">NATURAL SURFACE</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const { createApp, ref, computed, onMounted } = Vue;
+
+    const SUPABASE_URL = 'https://bwkderuygwfjpuvuvael.supabase.co'; 
+    const SUPABASE_KEY = 'sb_publishable_T_hvVCEHK69_ypF-Fzah6g_2bTtiFj2'; 
+    const sbClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    createApp({
+        setup() {
+            const isLoggedIn = ref(false);
+            const loading = ref(false);
+            const currentView = ref('list');
+            const showPreview = ref(false);
+            const loginForm = ref({ email: 'hzp15@qq.com', password: '', remember: false });
+            const loginError = ref('');
+            const quotesList = ref([]);
+
+            const defaultQuote = {
+                id: null, projectName: '', quoteNo: '', date: new Date().toISOString().split('T')[0],
+                contactName: '何志鹏', projectLocation: '',
+                items: [], showOriginalPrice: true, globalDiscount: 100
+            };
+
+            const form = ref({ ...defaultQuote });
+            const costForm = ref({
+                material: 0, transport: 0, 
+                labor: 0, misc: 0,
+                commissionType: 'none', commissionValue: 0, operatingRate: 10
+            });
+
+            onMounted(() => {
+                const savedUser = localStorage.getItem('ns_user_email');
+                const savedPass = localStorage.getItem('ns_user_pass');
+                if(savedUser && savedPass) {
+                    loginForm.value.email = savedUser;
+                    loginForm.value.password = savedPass;
+                    handleLogin();
+                }
+            });
+
+            const handleLogin = () => {
+                if (loginForm.value.password === '18588889438' && loginForm.value.email.toLowerCase() === 'hzp15@qq.com') {
+                    isLoggedIn.value = true;
+                    if(loginForm.value.remember) {
+                        localStorage.setItem('ns_user_email', loginForm.value.email);
+                        localStorage.setItem('ns_user_pass', loginForm.value.password);
+                    }
+                    fetchQuotes();
+                } else { loginError.value = '账户名或密码错误'; }
+            };
+
+            const logout = () => {
+                isLoggedIn.value = false;
+                localStorage.removeItem('ns_user_email');
+                localStorage.removeItem('ns_user_pass');
+            };
+
+            const fetchQuotes = async () => {
+                loading.value = true;
+                const { data } = await sbClient.from('quotes').select('*').order('created_at', { ascending: false });
+                if (data) quotesList.value = data;
+                loading.value = false;
+            };
+
+            const createNewQuote = () => {
+                const now = new Date();
+                const dateStr = now.toISOString().slice(0,10).replace(/-/g, '');
+                const seq = Math.floor(Math.random() * 899 + 100);
+                form.value = { ...defaultQuote, items: [], quoteNo: `NS${dateStr}${seq}`, date: now.toISOString().split('T')[0] };
+                costForm.value = { material: 0, transport: 0, labor: 0, misc: 0, commissionType: 'none', commissionValue: 0, operatingRate: 10 };
+                currentView.value = 'form';
+            };
+
+            const editQuote = (q) => {
+                form.value = JSON.parse(JSON.stringify({ id: q.id, quoteNo: q.quote_no, ...q.data }));
+                form.value.id = q.id; 
+                if(form.value.showOriginalPrice === undefined) form.value.showOriginalPrice = true;
+                if (q.cost_data) costForm.value = JSON.parse(JSON.stringify(q.cost_data));
+                else costForm.value = { material: 0, transport: 0, labor: 0, misc: 0, commissionType: 'none', commissionValue: 0, operatingRate: 10 };
+                currentView.value = 'form';
+            };
+
+            const deleteQuote = async (id) => {
+                if(!confirm('确定删除此项目？')) return;
+                await sbClient.from('quotes').delete().eq('id', id);
+                fetchQuotes();
+            };
+
+            const saveQuote = async () => {
+                const dataToSave = { ...form.value, grandTotal: grandTotalFinal.value };
+                const payload = {
+                    quote_no: form.value.quoteNo,
+                    project_name: form.value.projectName || '未命名项目',
+                    client_name: form.value.contactName,
+                    data: dataToSave,
+                    cost_data: costForm.value
+                };
+                let error;
+                if (form.value.id) error = (await sbClient.from('quotes').update(payload).eq('id', form.value.id)).error;
+                else error = (await sbClient.from('quotes').insert([payload])).error;
+                if (!error) { alert('保存成功！'); fetchQuotes(); }
+                else { alert('保存失败: ' + error.message); }
+            };
+
+            const addItem = () => {
+                form.value.items.push({
+                    location: '', type: '4layer', customTypeName: '', effect: '玄武岩',
+                    area: 0, difficulty: 'normal', 
+                    retailPrice: 680, discountedPrice: 450, 
+                    showSuColor: false, suColor: '#7C3AED'
+                });
+            };
+            const removeItem = (i) => form.value.items.splice(i, 1);
+
+            const updateDefaultPrice = (item) => {
+                if (item.type === '4layer') { item.retailPrice = 680; item.discountedPrice = 450; }
+                else if (item.type === '2layer') { item.retailPrice = 380; item.discountedPrice = 280; }
+                else if (item.type === 'custom') { item.retailPrice = 0; item.discountedPrice = 0; }
+            };
+
+            const totalRetail = computed(() => form.value.items.reduce((s, i) => s + (i.area * i.retailPrice), 0));
+            const subTotalDiscounted = computed(() => form.value.items.reduce((s, i) => s + (i.area * i.discountedPrice), 0));
+            const grandTotalFinal = computed(() => subTotalDiscounted.value * (form.value.globalDiscount / 100));
+
+            const areaStats = computed(() => ({
+                layer4: form.value.items.filter(i => i.type === '4layer').reduce((s,i) => s + i.area, 0),
+                layer2: form.value.items.filter(i => i.type === '2layer').reduce((s,i) => s + i.area, 0)
+            }));
+
+            const totalCost = computed(() => costForm.value.material + costForm.value.transport + costForm.value.labor + costForm.value.misc);
+            const commissionCost = computed(() => {
+                if (costForm.value.commissionType === 'fixed') return costForm.value.commissionValue;
+                if (costForm.value.commissionType === 'percent') return grandTotalFinal.value * (costForm.value.commissionValue / 100);
+                return 0;
+            });
+            const operatingCost = computed(() => (grandTotalFinal.value - commissionCost.value) * (costForm.value.operatingRate / 100));
+            const profitPerPerson = computed(() => (grandTotalFinal.value - commissionCost.value - totalCost.value - operatingCost.value) / 2);
+
+            const openCostModel = (q) => { editQuote(q); currentView.value = 'cost'; };
+            const openPreview = () => showPreview.value = true;
+
+            // 🟢 核心修改：生成高清图片逻辑
+            const downloadImage = () => {
+                const element = document.getElementById('pdf-content');
+                // 临时调整样式以适应截图
+                const originalWidth = element.style.width;
+                element.style.width = '900px'; 
+
+                html2canvas(element, {
+                    scale: 2, // 2倍清晰度
+                    backgroundColor: '#ffffff', // 确保白底
+                    useCORS: true // 允许跨域图片
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = `${form.value.projectName}_报价单.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                    // 恢复样式
+                    element.style.width = originalWidth;
+                });
+            };
+
+            const exportAllToExcel = () => {
+                const data = quotesList.value.map(q => ({
+                    日期: formatDate(q.created_at), 单号: q.quote_no, 项目: q.project_name, 
+                    总金额: q.data.grandTotal, 成本状态: q.cost_data ? '已核算' : '未核算'
+                }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "报价记录");
+                XLSX.writeFile(wb, "NS_Data_Export.xlsx");
+            };
+
+            const formatNumber = (n) => new Intl.NumberFormat().format(Math.round(n || 0));
+            const formatDate = (s) => s ? s.split('T')[0] : '';
+            const getDetailedSystem = (type) => {
+                if (type === '4layer') return "4层微岩石\n2层封孔剂\n2层保护层";
+                if (type === '2layer') return "2层微岩石\n1层封孔剂\n2层保护层";
+                return "自定义工艺";
+            };
+
+            return {
+                isLoggedIn, loginForm, loginError, handleLogin, logout,
+                currentView, loading, quotesList, form, costForm, showPreview,
+                createNewQuote, editQuote, saveQuote, deleteQuote, addItem, removeItem,
+                updateDefaultPrice, totalRetail, subTotalDiscounted, grandTotalFinal,
+                areaStats, totalCost, commissionCost, operatingCost, profitPerPerson,
+                openCostModel, openPreview, downloadImage, exportAllToExcel,
+                formatNumber, formatDate, getDetailedSystem
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
