@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NS 智能报价系统 V5.2 (图片版)</title>
+    <title>NS 智能报价系统 V5.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -16,7 +16,6 @@
         .input-std { width: 100%; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 8px; font-size: 13px; transition: border 0.2s; }
         .input-std:focus { border-color: #000; outline: none; }
         .preview-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 60; display: flex; justify-content: center; padding: 20px; overflow-y: auto; backdrop-filter: blur(5px); }
-        /* 🟢 修改：预览区域背景设为白色，确保截图背景正确 */
         .preview-content { background: white; width: 900px; min-height: 1200px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); position: relative; margin-bottom: 50px; }
         .project-card { background: white; border-radius: 12px; border: 1px solid #e2e8f0; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .project-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border-color: #94a3b8; }
@@ -24,6 +23,7 @@
         .mobile-label { font-size: 0.7rem; color: #64748b; margin-bottom: 2px; display: block; font-weight: 600; }
         .pdf-table th, .pdf-table td { border-bottom: 1px solid #e5e7eb; }
         .pdf-table th { border-top: 2px solid #000; border-bottom: 2px solid #000; }
+        * { -webkit-tap-highlight-color: transparent; }
     </style>
 </head>
 <body>
@@ -33,7 +33,7 @@
     <div v-if="!isLoggedIn" class="flex-1 flex items-center justify-center bg-slate-900 p-4">
         <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm text-center">
             <h1 class="text-3xl font-black text-black mb-2 tracking-tighter">NATURAL SURFACE</h1>
-            <p class="text-gray-500 text-xs mb-6">QUOTATION SYSTEM V5.2</p>
+            <p class="text-gray-500 text-xs mb-6">QUOTATION SYSTEM V5.5</p>
             <div class="space-y-4 text-left">
                 <input type="email" v-model="loginForm.email" class="input-std p-3" placeholder="Email">
                 <input type="password" v-model="loginForm.password" class="input-std p-3" placeholder="Password">
@@ -49,10 +49,10 @@
 
     <div v-else class="flex flex-col h-screen">
         <header class="bg-black text-white px-6 py-3 flex justify-between items-center shadow-lg z-40 sticky top-0">
-            <div class="font-bold text-lg tracking-wider">NS SYSTEM <span class="text-xs text-gray-500 ml-1">V5.2</span></div>
+            <div class="font-bold text-lg tracking-wider">NS SYSTEM <span class="text-xs text-gray-500 ml-1">V5.5</span></div>
             <div class="flex gap-4 text-sm">
-                <button @click="currentView = 'list'" :class="{'text-yellow-400': currentView==='list'}" class="hover:text-gray-300 flex items-center gap-2"><i class="fas fa-folder"></i> 项目列表</button>
-                <button @click="createNewQuote" class="hover:text-gray-300 flex items-center gap-2"><i class="fas fa-plus"></i> 新建</button>
+                <button @click="currentView = 'list'" :class="{'text-yellow-400': currentView==='list'}" class="hover:text-gray-300 flex items-center gap-2"><i class="fas fa-folder"></i> <span class="hidden md:inline">项目列表</span></button>
+                <button @click="createNewQuote" class="hover:text-gray-300 flex items-center gap-2"><i class="fas fa-plus"></i> <span class="hidden md:inline">新建</span></button>
                 <button @click="logout" class="text-red-400 hover:text-red-300"><i class="fas fa-power-off"></i></button>
             </div>
         </header>
@@ -93,7 +93,7 @@
                     <button @click="currentView = 'list'" class="text-gray-500 hover:text-black font-medium"><i class="fas fa-arrow-left mr-1"></i> 返回列表</button>
                     <div class="flex gap-2">
                         <button @click="saveQuote" class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow transition">保存</button>
-                        <button @click="openPreview" class="bg-black text-white px-4 py-2 rounded font-bold hover:bg-gray-800 shadow transition"><i class="fas fa-eye mr-1"></i> 预览报价单</button>
+                        <button @click="openPreview" class="bg-black text-white px-4 py-2 rounded font-bold hover:bg-gray-800 shadow transition"><i class="fas fa-eye mr-1"></i> <span class="hidden md:inline">预览报价单</span></button>
                     </div>
                 </div>
                 <div class="p-6 md:p-8 flex-1">
@@ -109,6 +109,54 @@
                             <h3 class="font-bold text-lg border-l-4 border-black pl-3">报价明细表</h3>
                             <button @click="addItem" class="bg-black text-white px-3 py-1 text-xs rounded hover:bg-gray-800 transition"><i class="fas fa-plus"></i> 添加位置</button>
                         </div>
+                        
+                        <div class="md:hidden space-y-4">
+                            <div v-for="(item, index) in form.items" :key="index" class="bg-white border rounded-lg p-4 shadow-sm relative">
+                                <button @click="removeItem(index)" class="absolute top-3 right-3 text-gray-300 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
+                                <div class="space-y-3">
+                                    <div><label class="mobile-label">位置</label><input v-model="item.location" class="input-std font-bold" placeholder="输入位置"></div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="mobile-label">工艺类型</label>
+                                            <select v-model="item.type" @change="updateDefaultPrice(item)" class="input-std mb-1">
+                                                <option value="4layer">4层工艺</option>
+                                                <option value="2layer">2层工艺</option>
+                                                <option value="custom">自定义</option>
+                                            </select>
+                                            <input v-if="item.type === 'custom'" v-model="item.customTypeName" class="input-std text-xs bg-yellow-50 border-yellow-200" placeholder="工艺名称">
+                                        </div>
+                                        <div>
+                                            <label class="mobile-label">效果</label>
+                                            <select v-model="item.effect" class="input-std">
+                                                <option value="玄武岩">玄武岩</option>
+                                                <option value="玄武岩矿物版">玄武岩矿物版</option>
+                                                <option value="石英岩">石英岩</option>
+                                                <option value="石灰岩">石灰岩</option>
+                                                <option value="石灰岩自然纹理">自然纹理</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-3 gap-2">
+                                        <div><label class="mobile-label">面积(㎡)</label><input type="number" v-model.number="item.area" class="input-std text-center font-bold"></div>
+                                        <div><label class="mobile-label text-orange-600">零售单价</label><input type="number" v-model.number="item.retailPrice" class="input-std text-center bg-orange-50 text-orange-600"></div>
+                                        <div><label class="mobile-label text-blue-600">折后单价</label><input type="number" v-model.number="item.discountedPrice" class="input-std text-center bg-blue-50 text-blue-600 font-bold"></div>
+                                    </div>
+                                    <div class="flex justify-between items-center pt-2 border-t border-gray-100">
+                                        <div class="w-1/3">
+                                            <label class="mobile-label">难度</label>
+                                            <select v-model="item.difficulty" class="input-std text-xs"><option value="normal">常规</option><option value="hard">特殊</option></select>
+                                        </div>
+                                        <div class="flex items-center gap-3">
+                                            <label class="flex items-center gap-2 text-xs text-gray-500">
+                                                <input type="checkbox" v-model="item.showSuColor"> SU图示
+                                            </label>
+                                            <input v-if="item.showSuColor" type="color" v-model="item.suColor" class="w-8 h-8 rounded-full border-2 border-white shadow-sm">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="hidden md:block border rounded-lg overflow-hidden shadow-sm">
                             <table class="w-full text-xs text-left">
                                 <thead class="bg-slate-100 text-slate-600 font-bold uppercase">
@@ -275,13 +323,13 @@
         <div>
             <div class="flex justify-end gap-3 mb-4 no-print">
                 <button @click="showPreview = false" class="bg-white text-gray-800 px-4 py-2 rounded-full font-bold shadow hover:bg-gray-100">关闭</button>
-                <button @click="downloadImage" class="bg-black text-white px-6 py-2 rounded-full font-bold shadow hover:bg-gray-800 flex items-center gap-2"><i class="fas fa-image"></i> 下载高清图片 (PNG)</button>
+                <button id="btn-download" @click="downloadImage" class="bg-black text-white px-6 py-2 rounded-full font-bold shadow hover:bg-gray-800 flex items-center gap-2"><i class="fas fa-image"></i> 下载高清图片</button>
             </div>
-
+            
             <div id="pdf-content" class="preview-content p-12 text-slate-900">
                 <div class="flex justify-between items-center border-b-2 border-black pb-6 mb-8">
                     <div class="flex items-center gap-4">
-                        <img src="https://via.placeholder.com/150x50/000000/FFFFFF?text=NATURAL+SURFACE" alt="Logo" class="h-12 object-contain" />
+                        <img src="./logo.png" alt="Logo" class="h-12 object-contain" />
                         <div class="border-l-2 border-black pl-4 h-10 flex flex-col justify-center">
                             <div class="font-bold text-sm tracking-widest">GUANGZHOU PANYI DECORATION</div>
                             <div class="text-xs text-gray-500">https://natural-surface.net/</div>
@@ -522,26 +570,60 @@
 
             const openCostModel = (q) => { editQuote(q); currentView.value = 'cost'; };
             const openPreview = () => showPreview.value = true;
+            
+            // 🟢 核心修复：智能区分手机和电脑的下载方式
+            const downloadImage = async () => {
+                const btn = document.getElementById('btn-download');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
+                btn.disabled = true;
 
-            // 🟢 核心修改：生成高清图片逻辑
-            const downloadImage = () => {
-                const element = document.getElementById('pdf-content');
-                // 临时调整样式以适应截图
-                const originalWidth = element.style.width;
-                element.style.width = '900px'; 
+                try {
+                    const element = document.getElementById('pdf-content');
+                    window.scrollTo(0,0);
+                    
+                    const canvas = await html2canvas(element, {
+                        scale: 2, backgroundColor: '#ffffff', useCORS: true,
+                        scrollY: 0, scrollX: 0
+                    });
 
-                html2canvas(element, {
-                    scale: 2, // 2倍清晰度
-                    backgroundColor: '#ffffff', // 确保白底
-                    useCORS: true // 允许跨域图片
-                }).then(canvas => {
-                    const link = document.createElement('a');
-                    link.download = `${form.value.projectName}_报价单.png`;
-                    link.href = canvas.toDataURL('image/png');
-                    link.click();
-                    // 恢复样式
-                    element.style.width = originalWidth;
-                });
+                    const fileName = `${form.value.projectName || '报价单'}.png`;
+                    
+                    // 1. 检查是否是移动设备 (Phone/Pad)
+                    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+                    // 2. 如果是移动端且支持分享，则用分享菜单
+                    if (isMobile && navigator.share) {
+                        canvas.toBlob(async (blob) => {
+                            if (!blob) return;
+                            const file = new File([blob], fileName, { type: 'image/png' });
+                            try {
+                                await navigator.share({
+                                    files: [file],
+                                    title: '报价单下载',
+                                    text: '请保存图片到相册'
+                                });
+                            } catch (shareError) {
+                                console.log('Share canceled/failed', shareError);
+                            }
+                        }, 'image/png');
+                    } 
+                    // 3. 如果是电脑端 (Mac/PC)，强制使用直接下载
+                    else {
+                        const link = document.createElement('a');
+                        link.download = fileName;
+                        link.href = canvas.toDataURL('image/png');
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
+
+                } catch (err) {
+                    alert('生成失败: ' + err.message);
+                } finally {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
             };
 
             const exportAllToExcel = () => {
